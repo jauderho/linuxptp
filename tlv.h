@@ -126,6 +126,8 @@ enum management_action {
 #define MID_PORT_PROPERTIES_NP				0xC004
 #define MID_PORT_STATS_NP				0xC005
 #define MID_PORT_SERVICE_STATS_NP			0xC007
+#define MID_UNICAST_MASTER_TABLE_NP			0xC008
+#define MID_PORT_HWCLOCK_NP				0xC009
 
 /* Management error ID values */
 #define MID_RESPONSE_TOO_BIG				0x0001
@@ -144,6 +146,9 @@ enum management_action {
 #define CANCEL_UNICAST_MAINTAIN_REQUEST	(1 << 0)
 #define CANCEL_UNICAST_MAINTAIN_GRANT	(1 << 1)
 #define GRANT_UNICAST_RENEWAL_INVITED	(1 << 0)
+
+/* Flags in PORT_HWCLOCK_NP */
+#define PORT_HWCLOCK_VCLOCK		(1 << 0)
 
 struct ack_cancel_unicast_xmit_tlv {
 	Enumeration16   type;
@@ -345,6 +350,12 @@ struct port_properties_np {
 	struct PTPText interface;
 } PACKED;
 
+struct port_hwclock_np {
+	struct PortIdentity portIdentity;
+	Integer32 phc_index;
+	UInteger8 flags;
+} PACKED;
+
 struct port_stats_np {
 	struct PortIdentity portIdentity;
 	struct PortStats stats;
@@ -353,6 +364,11 @@ struct port_stats_np {
 struct port_service_stats_np {
 	struct PortIdentity portIdentity;
 	struct PortServiceStats stats;
+} PACKED;
+
+struct unicast_master_table_np {
+	uint16_t actual_table_size;
+	struct unicast_master_entry unicast_masters[0];
 } PACKED;
 
 #define PROFILE_ID_LEN 6
