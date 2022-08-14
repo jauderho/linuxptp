@@ -167,6 +167,42 @@ static int msg_source_equal(struct ptp_message *m1, struct foreign_clock *fc)
 	return 0 == memcmp(id1, id2, sizeof(*id1));
 }
 
+static void port_cancel_unicast(struct port *p)
+{
+	struct unicast_master_address *ucma;
+
+	if (!unicast_client_enabled(p)) {
+		return;
+	}
+
+	STAILQ_FOREACH(ucma, &p->unicast_master_table->addrs, list) {
+		if (ucma) {
+			unicast_client_tx_cancel(p, ucma);
+		}
+	}
+}
+
+static int port_unicast_message_valid(struct port *p, struct ptp_message *m)
+{
+	struct unicast_master_address master;
+
+	if (!unicast_client_msg_is_from_master_table_entry(p, m)) {
+		memset(&master, 0, sizeof(master));
+		master.address = m->address;
+		master.portIdentity = m->header.sourcePortIdentity;
+
+		pr_warning("%s: new foreign master %s not in unicast master table",
+			   p->log_name, pid2str(&m->header.sourcePortIdentity));
+
+		if (unicast_client_tx_cancel(p, &master)) {
+			pr_warning("%s: cancel unicast transmission to %s failed",
+				   p->log_name, pid2str(&m->header.sourcePortIdentity));
+		}
+		return 0;
+	}
+	return 1;
+}
+
 int source_pid_eq(struct ptp_message *m1, struct ptp_message *m2)
 {
 	return pid_eq(&m1->header.sourcePortIdentity,
@@ -351,6 +387,11 @@ static int add_foreign_master(struct port *p, struct ptp_message *m)
 		}
 	}
 	if (!fc) {
+		if (unicast_client_enabled(p)) {
+			if (!port_unicast_message_valid(p, m)) {
+				return 0;
+			}
+		}
 		pr_notice("%s: new foreign master %s", p->log_name,
 			pid2str(&m->header.sourcePortIdentity));
 
@@ -1813,6 +1854,9 @@ int port_initialize(struct port *p)
 		pr_err("inhibit_delay_req can only be set when asCapable == 'true'.");
 		return -1;
 	}
+	if (port_delay_mechanism(p) == DM_NO_MECHANISM) {
+		p->inhibit_delay_req = 1;
+	}
 
 	for (i = 0; i < N_TIMER_FDS; i++) {
 		fd[i] = -1;
@@ -2462,6 +2506,7 @@ void process_sync(struct port *p, struct ptp_message *m)
 void port_close(struct port *p)
 {
 	if (port_is_enabled(p)) {
+		port_cancel_unicast(p);
 		port_disable(p);
 	}
 
@@ -2636,10 +2681,43 @@ static void bc_dispatch(struct port *p, enum fsm_event event, int mdiff)
 	}
 }
 
+static void port_change_phc(struct port *p)
+{
+	int required_modes;
+
+	/* Only switch a non-vclock PHC with HW time stamping. */
+	if (!interface_tsinfo_valid(p->iface) ||
+	    interface_get_vclock(p->iface) >= 0 ||
+	    interface_phc_index(p->iface) < 0)
+		return;
+
+	required_modes = clock_required_modes(p->clock);
+	if (!interface_tsmodes_supported(p->iface, required_modes)) {
+		pr_err("interface '%s' does not support requested "
+		       "timestamping mode, set link status down by force.",
+		       interface_label(p->iface));
+		p->link_status = LINK_DOWN | LINK_STATE_CHANGED;
+	} else if (p->phc_from_cmdline) {
+		pr_warning("%s: taking /dev/ptp%d from the "
+			   "command line, not the attached ptp%d",
+			   p->log_name, p->phc_index,
+			   interface_phc_index(p->iface));
+	} else if (p->phc_index != interface_phc_index(p->iface)) {
+		p->phc_index = interface_phc_index(p->iface);
+
+		if (clock_switch_phc(p->clock, p->phc_index)) {
+			p->last_fault_type = FT_SWITCH_PHC;
+			port_dispatch(p, EV_FAULT_DETECTED, 0);
+			return;
+		}
+		clock_sync_interval(p->clock, p->log_sync_interval);
+	}
+}
+
 void port_link_status(void *ctx, int linkup, int ts_index)
 {
 	char ts_label[MAX_IFNAME_SIZE + 1] = {0};
-	int link_state, required_modes;
+	int link_state;
 	const char *old_ts_label;
 	struct port *p = ctx;
 
@@ -2659,37 +2737,18 @@ void port_link_status(void *ctx, int linkup, int ts_index)
 		pr_notice("%s: ts label changed to %s", p->log_name, ts_label);
 	}
 
+	/* phc index may changed while ts_label keeps the same after failover.
+	 * e.g. vlan over bond. Since the lower link changed, we still set
+	 * the TS_LABEL_CHANGED flag.
+	 */
+	interface_get_tsinfo(p->iface);
+	if (p->phc_index != interface_phc_index(p->iface))
+		p->link_status |= TS_LABEL_CHANGED;
+
 	/* Both link down/up and change ts_label may change phc index. */
 	if (p->link_status & LINK_UP &&
-	    (p->link_status & LINK_STATE_CHANGED || p->link_status & TS_LABEL_CHANGED)) {
-		interface_get_tsinfo(p->iface);
-
-		/* Only switch phc with HW time stamping mode */
-		if (interface_tsinfo_valid(p->iface) &&
-		    interface_phc_index(p->iface) >= 0) {
-			required_modes = clock_required_modes(p->clock);
-			if (!interface_tsmodes_supported(p->iface, required_modes)) {
-				pr_err("interface '%s' does not support requested "
-				       "timestamping mode, set link status down by force.",
-				       interface_label(p->iface));
-				p->link_status = LINK_DOWN | LINK_STATE_CHANGED;
-			} else if (p->phc_from_cmdline) {
-				pr_warning("%s: taking /dev/ptp%d from the "
-					   "command line, not the attached ptp%d",
-					   p->log_name, p->phc_index,
-					   interface_phc_index(p->iface));
-			} else if (p->phc_index != interface_phc_index(p->iface)) {
-				p->phc_index = interface_phc_index(p->iface);
-
-				if (clock_switch_phc(p->clock, p->phc_index)) {
-					p->last_fault_type = FT_SWITCH_PHC;
-					port_dispatch(p, EV_FAULT_DETECTED, 0);
-					return;
-				}
-				clock_sync_interval(p->clock, p->log_sync_interval);
-			}
-		}
-	}
+	    (p->link_status & LINK_STATE_CHANGED || p->link_status & TS_LABEL_CHANGED))
+		port_change_phc(p);
 
 	/*
 	 * A port going down can affect the BMCA result.
@@ -3339,6 +3398,11 @@ err_port:
 enum port_state port_state(struct port *port)
 {
 	return port->state;
+}
+
+enum delay_mechanism port_delay_mechanism(struct port *port)
+{
+	return port->delayMechanism;
 }
 
 int port_state_update(struct port *p, enum fsm_event event, int mdiff)

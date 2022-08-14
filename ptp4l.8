@@ -245,7 +245,7 @@ the fault be reset immediately.
 The default is 16 seconds.
 .TP
 .B delay_mechanism
-Select the delay mechanism. Possible values are E2E, P2P and Auto.
+Select the delay mechanism. Possible values are E2E, P2P, NONE and Auto.
 The default is E2E.
 .TP
 .B hybrid_e2e
@@ -324,7 +324,7 @@ comparison algorithm.  The value of this option is associated with
 Announce messages arriving on a particular port and is used as a tie
 breaker whenever clockClass, clockAccuracy, offsetScaledLogVariance,
 and priority2 are equal. This option is only used when
-"dataset_comparison" is set to "telecom".
+"dataset_comparison" is set to "G.8275.x".
 The default value is 128.
 
 Warning: the BMCA is guaranteed to produce a spanning tree (that is, a
@@ -459,7 +459,7 @@ alternate Best Master Clock Algorithm (BMCA) with a unique data set
 comparison algorithm.  The value of this option is associated with the
 local clock and is used as a tie breaker whenever clockClass,
 clockAccuracy, offsetScaledLogVariance, and priority2 are equal. This
-option is only used when "dataset_comparison" is set to "telecom".
+option is only used when "dataset_comparison" is set to "G.8275.x".
 The default value is 128.
 
 Warning: the BMCA is guaranteed to produce a spanning tree (that is, a
@@ -647,6 +647,16 @@ Specifies the address of the second UNIX domain socket for receiving local
 management messages, which is restricted to GET actions and does not forward
 messages to other ports. Access to this socket can be given to untrusted
 applications for monitoring purposes. The default is /var/run/ptp4lro.
+.TP
+.B uds_file_mode
+File mode of the UNIX domain socket used for receiving local management
+messages. The mode should be specified as an octal number, i.e. it
+should start with a 0 literal. The default mode is 0660.
+.TP
+.B uds_ro_file_mode
+File mode of the second (read-only) UNIX domain socket used for receiving
+local management messages. The mode should be specified as an octal number,
+i.e. it should start with a 0 literal. The default mode is 0666.
 .TP
 .B dscp_event
 Defines the Differentiated Services Codepoint (DSCP) to be used for PTP

@@ -1002,9 +1002,8 @@ struct clock *clock_create(enum clock_type type, struct config *config,
 	required_modes = clock_required_modes(c);
 	STAILQ_FOREACH(iface, &config->interfaces, list) {
 		memset(ts_label, 0, sizeof(ts_label));
-		rtnl_get_ts_device(interface_name(iface), ts_label);
-		interface_set_label(iface, ts_label);
-		interface_ensure_tslabel(iface);
+		if (!rtnl_get_ts_device(interface_name(iface), ts_label))
+			interface_set_label(iface, ts_label);
 		interface_get_tsinfo(iface);
 		if (interface_tsinfo_valid(iface) &&
 		    !interface_tsmodes_supported(iface, required_modes)) {
@@ -1768,6 +1767,9 @@ int clock_switch_phc(struct clock *c, int phc_index)
 	c->clkid = clkid;
 	c->servo = servo;
 	c->servo_state = SERVO_UNLOCKED;
+
+	pr_info("Switched to /dev/ptp%d as PTP clock", phc_index);
+
 	return 0;
 }
 
@@ -1996,8 +1998,10 @@ static void handle_state_decision_event(struct clock *c)
 		if (c->sanity_check)
 			clockcheck_reset(c->sanity_check);
 		tsproc_reset(c->tsproc, 1);
-		if (!tmv_is_zero(c->initial_delay))
+		if (!tmv_is_zero(c->initial_delay) || (best &&
+			port_delay_mechanism(best->port) == DM_NO_MECHANISM)) {
 			tsproc_set_delay(c->tsproc, c->initial_delay);
+		}
 		c->ingress_ts = tmv_zero();
 		c->path_delay = c->initial_delay;
 		c->master_local_rr = 1.0;

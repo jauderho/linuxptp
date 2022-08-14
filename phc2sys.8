@@ -120,7 +120,7 @@ Specify the time sink by device (e.g. /dev/ptp1) or interface (e.g. eth1) or
 by  name. The default is CLOCK_REALTIME (the system clock). Not compatible
 with the
 .B \-a
-option.
+option. This option may be given multiple times.
 .TP
 .BI \-E " servo"
 Specify which clock servo should be used. Valid values are pi for a PI
@@ -322,6 +322,10 @@ frequency offset zero (for use in SyncE nodes). The default is "pi."
 Same as option
 .B \-E
 (see above).
+
+.TP
+.B free-running
+Don't adjust the sink clock if enabled. The default is 0 (disabled).
 
 .TP
 .B transportSpecific

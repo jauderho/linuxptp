@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "as_capable.h"
 #include "bmc.h"
@@ -32,6 +33,9 @@
 #include "hash.h"
 #include "print.h"
 #include "util.h"
+
+#define UDS_FILEMODE (S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP) /*0660*/
+#define UDS_RO_FILEMODE (UDS_FILEMODE|S_IROTH|S_IWOTH) /*0666*/
 
 struct interface {
 	STAILQ_ENTRY(interface) list;
@@ -167,6 +171,7 @@ static struct config_enum delay_mech_enu[] = {
 	{ "Auto", DM_AUTO },
 	{ "E2E",  DM_E2E },
 	{ "P2P",  DM_P2P },
+	{ "NONE", DM_NO_MECHANISM },
 	{ NULL, 0 },
 };
 
@@ -330,7 +335,9 @@ struct config_item config_tab[] = {
 	PORT_ITEM_INT("udp_ttl", 1, 1, 255),
 	PORT_ITEM_INT("udp6_scope", 0x0E, 0x00, 0x0F),
 	GLOB_ITEM_STR("uds_address", "/var/run/ptp4l"),
+	PORT_ITEM_INT("uds_file_mode", UDS_FILEMODE, 0, 0777),
 	GLOB_ITEM_STR("uds_ro_address", "/var/run/ptp4lro"),
+	PORT_ITEM_INT("uds_ro_file_mode", UDS_RO_FILEMODE, 0, 0777),
 	PORT_ITEM_INT("unicast_listen", 0, 0, 1),
 	PORT_ITEM_INT("unicast_master_table", 0, 0, INT_MAX),
 	PORT_ITEM_INT("unicast_req_duration", 3600, 10, INT_MAX),
